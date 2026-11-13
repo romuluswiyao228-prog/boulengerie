@@ -1,0 +1,120 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+
+  --color-cream: #fffaf1;
+  --color-ivory: #fffdf8;
+  --color-ink: #2c2118;
+
+  --color-bread-50: #fbf7ef;
+  --color-bread-100: #f4ecdc;
+  --color-bread-200: #e7dac2;
+  --color-bread-300: #d4bd99;
+  --color-bread-400: #b99c72;
+  --color-bread-500: #967b58;
+  --color-bread-600: #76593d;
+  --color-bread-700: #5e442f;
+  --color-bread-800: #4a3627;
+  --color-bread-900: #3a2b20;
+  --color-bread-950: #251a12;
+
+  --color-gold-50: #fbf4e6;
+  --color-gold-100: #f6e6c4;
+  --color-gold-200: #eed09a;
+  --color-gold-300: #e5b662;
+  --color-gold-400: #d99a35;
+  --color-gold-500: #c67f1d;
+  --color-gold-600: #a86614;
+  --color-gold-700: #854f12;
+  --color-gold-800: #6a4012;
+  --color-gold-900: #573410;
+  --color-gold-950: #341e08;
+
+  /* Neutres et accents existants remappés sur la palette boulangerie */
+  --color-stone-50: #faf6ee;
+  --color-stone-100: #f4ecdd;
+  --color-stone-200: #e7dbc4;
+  --color-stone-300: #d6c1a1;
+  --color-stone-400: #b99e7c;
+  --color-stone-500: #8f7a63;
+  --color-stone-600: #6d5947;
+  --color-stone-700: #574639;
+  --color-stone-800: #42372d;
+  --color-stone-900: #342b23;
+  --color-stone-950: #221a14;
+
+  --color-amber-50: #fbf4e6;
+  --color-amber-100: #f6e6c4;
+  --color-amber-200: #eed09a;
+  --color-amber-300: #e5b662;
+  --color-amber-400: #d99a35;
+  --color-amber-500: #c67f1d;
+  --color-amber-600: #a86614;
+  --color-amber-700: #854f12;
+  --color-amber-800: #6a4012;
+  --color-amber-900: #573410;
+  --color-amber-950: #341e08;
+
+  --color-orange-50: #fbf1e4;
+  --color-orange-100: #f5e0c8;
+  --color-orange-200: #eac79b;
+  --color-orange-300: #ddaa6f;
+  --color-orange-400: #cf8d4a;
+  --color-orange-500: #bc6f2e;
+  --color-orange-600: #a25522;
+  --color-orange-700: #82411e;
+  --color-orange-800: #683620;
+  --color-orange-900: #552d1d;
+  --color-orange-950: #331a10;
+
+  --shadow-card: 0 12px 32px -24px rgb(44 32 22 / 0.28);
+  --shadow-pop: 0 24px 60px -28px rgb(36 22 12 / 0.38);
+}
+
+:root {
+  color-scheme: light;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: #f6efe4;
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior-y: none;
+}
+
+/* Masquer les flèches des inputs numériques sur mobile */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] { -moz-appearance: textfield; }
+
+input[type="date"] { min-height: 46px; }
+
+::selection { background: #eed09a; color: #2c2118; }
+
+@keyframes apparition {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.anim-apparition { animation: apparition 0.22s ease-out both; }
+
+@keyframes fondu {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.anim-fondu { animation: fondu 0.18s ease-out both; }
+
+/* Barre de défilement discrète */
+* { scrollbar-width: thin; scrollbar-color: #cdbb9f transparent; }
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-thumb { background: #cdbb9f; border-radius: 99px; }
