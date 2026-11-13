@@ -118,3 +118,24 @@ input[type="date"] { min-height: 46px; }
 * { scrollbar-width: thin; scrollbar-color: #cdbb9f transparent; }
 *::-webkit-scrollbar { width: 8px; height: 8px; }
 *::-webkit-scrollbar-thumb { background: #cdbb9f; border-radius: 99px; }
+
+/* Impression : ne montrer que la zone .zone-impression */
+@media print {
+  body * { visibility: hidden; }
+  .zone-impression, .zone-impression * { visibility: visible; }
+  .zone-impression {
+    position: fixed;
+    inset: 0;
+    display: block !important;
+    background: #fff;
+    color: #1c1410;
+    padding: 24px;
+    font-size: 12px;
+    line-height: 1.45;
+  }
+  .zone-impression table { width: 100%; border-collapse: collapse; }
+  .zone-impression th, .zone-impression td { border-bottom: 1px solid #ddd; padding: 5px 6px; text-align: left; vertical-align: top; }
+  .zone-impression th { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: #666; }
+  .zone-impression .total-row td { font-weight: 700; border-top: 2px solid #1c1410; }
+  .no-print { display: none !important; }
+}

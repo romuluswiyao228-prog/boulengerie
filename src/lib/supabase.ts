@@ -12,5 +12,5 @@ export const supabase: SupabaseClient | null = supabaseConfigure
   ? createClient(url!, key!, { auth: { persistSession: true, autoRefreshToken: true } })
   : null
 
-/** true = l'app tourne sur les données locales de démonstration */
-export const MODE_DEMO = !supabaseConfigure
+/** Mode démo désactivé : l'application utilise uniquement Supabase. */
+export const MODE_DEMO = false

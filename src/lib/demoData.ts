@@ -3,9 +3,10 @@
 // Utilisé quand aucune clé Supabase n'est configurée (mode démo local).
 // ============================================================================
 import type {
-  AppData, Client, Commande, Depense, Invendu, Produit, Production,
+  AppData, CategorieProduit, Client, Commande, Depense, Invendu, Produit, Production,
   Remboursement, Vente, LigneVente,
 } from './types'
+import { CATEGORIES_PRODUITS_DEFAUT } from './types'
 import { addDays, toISODate } from './utils'
 
 // PRNG déterministe (mulberry32) → mêmes données à chaque chargement
@@ -44,7 +45,17 @@ export const EMPLOYES_DEMO = [
   { id: 'u-employe', email: 'employe@boulangerie.tg', nom: 'Kafui AMOUZOU', role: 'employe' as const, mot_de_passe: 'demo1234' },
 ]
 
+export function categoriesInitiales(): CategorieProduit[] {
+  return CATEGORIES_PRODUITS_DEFAUT.map((nom, i) => ({
+    id: `cat-${i + 1}`, nom, actif: true, created_at: '2024-01-01T00:00:00.000Z',
+  }))
+}
+
 export function creerDonneesDemo(): AppData {
+  return { categories: categoriesInitiales(), produits: [], clients: [], ventes: [], remboursements: [], commandes: [], productions: [], invendus: [], depenses: [] }
+}
+
+function creerDonneesDemoAnciennes(): AppData {
   const rnd = mulberry32(20261113)
   const pick = <T,>(arr: T[]): T => arr[Math.floor(rnd() * arr.length)]
   const entre = (a: number, b: number) => Math.floor(rnd() * (b - a + 1)) + a
@@ -291,7 +302,7 @@ export function creerDonneesDemo(): AppData {
     })
   }
 
-  return { produits, clients, ventes, remboursements, commandes, productions, invendus, depenses }
+  return { categories: categoriesInitiales(), produits, clients, ventes, remboursements, commandes, productions, invendus, depenses }
 }
 
 export const VERSION_DEMO = 'gestipain-demo-v1'

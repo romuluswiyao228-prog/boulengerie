@@ -40,6 +40,15 @@ export default function Historique() {
     credit: ventes.filter((v) => v.mode_paiement === 'credit').reduce((s, v) => s + v.total, 0),
   }), [ventes])
 
+  // Total de toutes les ventes du client filtré (agrégat SQL v_stats_clients)
+  const clientFiltre = data.clients.find((c) => c.id === clientId) ?? null
+  const totalClient = useMemo(() => {
+    if (!clientId) return 0
+    const c = data.clients.find((x) => x.id === clientId)
+    if (c?.stats) return c.stats.total_ventes
+    return data.ventes.filter((v) => v.client_id === clientId).reduce((s, v) => s + v.total, 0)
+  }, [clientId, data.clients, data.ventes])
+
   const reinit = () => {
     setDu(addDays(aujourdhui(), -7)); setAu(aujourdhui())
     setProduitId(''); setClientId(''); setEmploye('')
@@ -81,6 +90,20 @@ export default function Historique() {
         </div>
       </Carte>
 
+      {clientFiltre && (
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-gold-200 bg-gold-50 px-4 py-3">
+          <div>
+            <p className="text-[13px] font-black text-gold-900">Ventes de {clientFiltre.nom}</p>
+            {clientFiltre.stats && (
+              <p className="text-[11px] font-semibold text-gold-700">
+                payé {FCFA(clientFiltre.stats.total_comptant + clientFiltre.stats.total_rembourse)} · solde {FCFA(clientFiltre.solde_du)}
+              </p>
+            )}
+          </div>
+          <p className="text-[17px] font-black text-gold-900">{FCFA(totalClient)}</p>
+        </div>
+      )}
+
       <div className="mb-5 grid grid-cols-3 gap-2.5">
         <MiniStat label="Ventes" valeur={String(ventes.length)} />
         <MiniStat label="Total" valeur={FCFA(totaux.montant)} accent />
@@ -103,7 +126,7 @@ export default function Historique() {
                     <div className="flex flex-wrap items-center gap-1.5">
                       <span className="text-[13px] font-bold text-stone-900">{formatDateFR(v.date)}</span>
                       <span className="text-[11px] text-stone-400">{formatHeure(v.created_at)}</span>
-                      <Etiquette ton={v.mode_paiement === 'comptant' ? 'vert' : 'rouge'}>
+                      <Etiquette ton={v.mode_paiement === 'comptant' ? 'vert' : v.mode_paiement === 'partiel' ? 'ambre' : 'rouge'}>
                         {LIBELLE_PAIEMENT[v.mode_paiement]}
                       </Etiquette>
                       <Etiquette ton={v.type_client === 'revendeur' ? 'bleu' : 'gris'}>

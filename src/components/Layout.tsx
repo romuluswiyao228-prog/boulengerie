@@ -41,7 +41,7 @@ export const NAV_GROUPS: GroupeNav[] = [
   {
     titre: 'Ventes & caisse',
     items: [
-      { to: '/ventes', label: 'Nouvelle vente', court: 'Vente', icone: ShoppingCart, sousTitre: 'Saisie rapide au comptoir' },
+      { to: '/ventes', label: 'Caisse', court: 'Caisse', icone: ShoppingCart, sousTitre: 'Catalogue, ticket et encaissement' },
       { to: '/historique', label: 'Historique', court: 'Histo.', icone: History, sousTitre: 'Ventes et opérations passées' },
       { to: '/credits', label: 'Clients & crédits', court: 'Crédits', icone: HandCoins, sousTitre: 'Dettes et remboursements' },
       { to: '/commandes', label: 'Précommandes', court: 'Précmd', icone: ClipboardList, sousTitre: 'Préparation et livraisons' },
@@ -50,7 +50,7 @@ export const NAV_GROUPS: GroupeNav[] = [
   {
     titre: 'Catalogue & stocks',
     items: [
-      { to: '/produits', label: 'Produits', court: 'Produits', icone: Croissant, sousTitre: 'Catalogue et prix' },
+      { to: '/produits', label: 'Catalogue', court: 'Catalogue', icone: Croissant, sousTitre: 'Photos, prix et stocks' },
       { to: '/production', label: 'Production', court: 'Prod.', icone: ChefHat, sousTitre: 'Fabrication quotidienne', proprietaireSeulement: true },
       { to: '/invendus', label: 'Invendus & pertes', court: 'Pertes', icone: Trash, sousTitre: 'Pertes et fin de journée' },
     ],

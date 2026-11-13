@@ -7,14 +7,14 @@
 //     sans backend. Les règles de rôle y sont appliquées côté client.
 // ============================================================================
 import { supabase, MODE_DEMO } from './supabase'
-import { creerDonneesDemo, EMPLOYES_DEMO } from './demoData'
+import { categoriesInitiales, creerDonneesDemo, EMPLOYES_DEMO } from './demoData'
 import type {
-  AppData, Client, Commande, Depense, Invendu, LigneVente, Produit,
-  Profil, Production, Remboursement, Role, Vente,
+  AppData, CategorieProduit, Client, Commande, Depense, Invendu, LigneVente, MoyenPaiement,
+  Produit, Profil, Production, Remboursement, Role, StatsClient, Vente,
 } from './types'
 import { aujourdhui, uid } from './utils'
 
-const CLE_STORAGE = 'gestipain.demo.v1'
+const CLE_STORAGE = 'gestipain.app.v1'
 
 // ---------------------------------------------------------------------------
 // État démo persistant
@@ -28,7 +28,10 @@ function chargerDemo(): DemoState {
     const brut = localStorage.getItem(CLE_STORAGE)
     if (brut) {
       const parse = JSON.parse(brut) as DemoState
-      if (parse.produits && parse.ventes) return parse
+      if (parse.produits && parse.ventes) {
+        if (!Array.isArray(parse.categories) || !parse.categories.length) parse.categories = categoriesInitiales()
+        return parse
+      }
     }
   } catch {
     /* ignore */
@@ -54,18 +57,28 @@ export const reinitialiserDemo = () => {
 // ---------------------------------------------------------------------------
 // Helpers Supabase : mapping snake_case → objets applicatifs
 // ---------------------------------------------------------------------------
+// Colonnes lisibles par le rôle `authenticated` : les colonnes de coût
+// (cout_production, cout_total, cout_unitaire) sont exclues — elles ne
+// remontent que via les vues réservées au propriétaire (v_couts_*).
+// À réutiliser dans tout select/upsert/insert...returning sur ces tables.
+const COLONNES_VENTE =
+  'id,date,type_client,mode_paiement,client_id,total,montant_paye,reste_a_payer,moyen_paiement,montant_recu,monnaie_rendue,note,user_id,created_at'
+const COLONNES_LIGNE = 'id,vente_id,produit_id,produit_nom,quantite,prix_unitaire'
+const COLONNES_PRODUIT =
+  'id,nom,prix_detail,prix_revendeur,categorie,photo_url,description,stock,seuil_alerte,unite,actif,created_at'
+
 async function chargerDepuisSupabase(_role: Role): Promise<AppData> {
-  const sb = supabase!
+  if (!supabase) throw new Error('Supabase n’est pas configuré. Ajoutez VITE_SUPABASE_URL et VITE_SUPABASE_ANON_KEY dans .env.')
+  const sb = supabase
   // Un employé ne récupère jamais les colonnes de coût (aucun accès aux bénéfices).
   // Côté base, ces colonnes sont en plus protégées par des privilèges (schema.sql §5 bis).
   // Champs communs aux deux rôles (les coûts arrivent par les vues propriétaire)
-  const colonnesVente =
-    'id,date,type_client,mode_paiement,client_id,total,montant_paye,note,user_id,created_at'
-  const colonnesLigne = 'id,vente_id,produit_id,produit_nom,quantite,prix_unitaire'
-  const colonnesProduit =
-    'id,nom,prix_detail,prix_revendeur,actif,created_at'
-  const [produits, clients, ventes, lignes, couts, coutsProduits, remb, commandes, lignesCmd, productions, invendus, depenses, profils] =
+  const colonnesVente = COLONNES_VENTE
+  const colonnesLigne = COLONNES_LIGNE
+  const colonnesProduit = COLONNES_PRODUIT
+  const [categories, produits, clients, ventes, lignes, couts, coutsProduits, remb, commandes, lignesCmd, productions, invendus, depenses, profils, statsClients] =
     await Promise.all([
+      sb.from('categories_produits').select('*').order('nom'),
       sb.from('produits').select(colonnesProduit).order('created_at'),
       sb.from('clients').select('*').order('nom'),
       sb.from('ventes').select(colonnesVente).order('created_at', { ascending: false }),
@@ -79,6 +92,7 @@ async function chargerDepuisSupabase(_role: Role): Promise<AppData> {
       sb.from('invendus').select('*').order('date', { ascending: false }),
       sb.from('depenses').select('*').order('date', { ascending: false }),
       sb.from('profils').select('*'),
+      sb.from('v_stats_clients').select('*'),
     ])
 
   // Les dépenses / productions sont invisibles (RLS) pour un employé : erreur ou tableau vide.
@@ -105,15 +119,27 @@ async function chargerDepuisSupabase(_role: Role): Promise<AppData> {
     lignesParCmd.set(l.commande_id, arr)
   }
 
+  const statsParClient = new Map<string, StatsClient>()
+  for (const s of (statsClients.data ?? []) as any[]) {
+    statsParClient.set(s.client_id, {
+      total_ventes: Number(s.total_ventes),
+      total_verse: Number(s.total_verse ?? 0),
+      total_comptant: Number(s.total_comptant),
+      total_credit: Number(s.total_credit),
+      total_rembourse: Number(s.total_rembourse),
+    })
+  }
+
   const clientsAvecSolde: Client[] = ((clients.data ?? []) as any[]).map((c: any) => {
+    // Dette = reste à payer des ventes (crédit + partiels) − remboursements
     const du =
       ((ventes.data ?? []) as any[])
-        .filter((v: any) => v.client_id === c.id && v.mode_paiement === 'credit')
-        .reduce((s: number, v: any) => s + v.total, 0) -
+        .filter((v: any) => v.client_id === c.id)
+        .reduce((s: number, v: any) => s + (v.reste_a_payer ?? (v.mode_paiement === 'credit' ? v.total : 0)), 0) -
       (remb.data ?? [])
         .filter((r: any) => r.client_id === c.id)
         .reduce((s: number, r: any) => s + r.montant, 0)
-    return { ...c, solde_du: du }
+    return { ...c, solde_du: du, stats: statsParClient.get(c.id) }
   })
 
   const coutProduit = new Map<string, number>()
@@ -122,6 +148,7 @@ async function chargerDepuisSupabase(_role: Role): Promise<AppData> {
   }
 
   return {
+    categories: (categories.data ?? []) as CategorieProduit[],
     produits: ((produits.data ?? []) as any[]).map((p) => ({
       ...p,
       cout_production: coutProduit.get(p.id) ?? 0,
@@ -159,7 +186,12 @@ async function chargerDepuisSupabase(_role: Role): Promise<AppData> {
 export interface NouvelleVente {
   date: string
   type_client: 'detail' | 'revendeur'
-  mode_paiement: 'comptant' | 'credit'
+  mode_paiement: 'comptant' | 'credit' | 'partiel'
+  moyen_paiement?: MoyenPaiement | null
+  montant_recu?: number | null
+  monnaie_rendue?: number | null
+  /** Acompte versé immédiatement (mode partiel) */
+  montant_paye?: number | null
   client_id: string | null
   note: string | null
   lignes: { produit_id: string; produit_nom: string; quantite: number; prix_unitaire: number; cout_unitaire: number }[]
@@ -185,15 +217,71 @@ export const api = {
       const nouveau: Produit = {
         id: uid(), nom: p.nom, prix_detail: p.prix_detail ?? 0,
         prix_revendeur: p.prix_revendeur ?? 0, cout_production: p.cout_production ?? 0,
+        categorie: p.categorie ?? null, photo_url: p.photo_url ?? null,
+        description: p.description ?? null, stock: p.stock ?? 0,
+        seuil_alerte: p.seuil_alerte ?? 0, unite: p.unite ?? 'unité',
         actif: p.actif ?? true, created_at: new Date().toISOString(),
       }
       st.produits.push(nouveau)
       sauverDemo(st)
       return nouveau
     }
-    const { data, error } = await supabase!.from('produits').upsert(p).select().single()
+    const { data, error } = await supabase!.from('produits')
+      .upsert(p)
+      .select(COLONNES_PRODUIT)
+      .single()
     if (error) throw error
-    return data as Produit
+    // cout_production n'est pas relisible (colonne protégée) : on la reporte depuis l'entrée
+    return { ...(data as Produit), cout_production: p.cout_production ?? 0 }
+  },
+
+  async supprimerProduit(id: string) {
+    if (MODE_DEMO) {
+      const st = chargerDemo()
+      st.produits = st.produits.filter((x) => x.id !== id)
+      sauverDemo(st)
+      return
+    }
+    const { error } = await supabase!.from('produits').delete().eq('id', id)
+    if (error) throw error
+  },
+
+  // --- Catégories produits ---------------------------------------------------
+  async enregistrerCategorie(c: { id?: string; nom: string; actif?: boolean }): Promise<CategorieProduit> {
+    const nom = c.nom.trim()
+    if (!nom) throw new Error('Le nom de la catégorie est obligatoire.')
+    if (MODE_DEMO) {
+      const st = chargerDemo()
+      const existant = c.id ? st.categories.find((x) => x.id === c.id) : st.categories.find((x) => x.nom.toLowerCase() === nom.toLowerCase())
+      if (existant) {
+        existant.nom = nom
+        if (c.actif != null) existant.actif = c.actif
+        sauverDemo(st)
+        return existant
+      }
+      const nouvelle: CategorieProduit = { id: uid(), nom, actif: c.actif ?? true, created_at: new Date().toISOString() }
+      st.categories.push(nouvelle)
+      sauverDemo(st)
+      return nouvelle
+    }
+    const payload = { nom, actif: c.actif ?? true }
+    const req = c.id
+      ? supabase!.from('categories_produits').update(payload).eq('id', c.id).select().single()
+      : supabase!.from('categories_produits').insert(payload).select().single()
+    const { data, error } = await req
+    if (error) throw error
+    return data as CategorieProduit
+  },
+
+  async supprimerCategorie(id: string) {
+    if (MODE_DEMO) {
+      const st = chargerDemo()
+      st.categories = st.categories.filter((x) => x.id !== id)
+      sauverDemo(st)
+      return
+    }
+    const { error } = await supabase!.from('categories_produits').delete().eq('id', id)
+    if (error) throw error
   },
 
   async basculerProduit(id: string, actif: boolean) {
@@ -206,6 +294,30 @@ export const api = {
     }
     const { error } = await supabase!.from('produits').update({ actif }).eq('id', id)
     if (error) throw error
+  },
+
+  // --- Photos produits (Supabase Storage, bucket "produits") -----------------
+  /** Envoie un fichier image et retourne son URL publique */
+  async televerserPhoto(fichier: File): Promise<string> {
+    if (!supabase) throw new Error('Supabase non configuré')
+    const extension = (fichier.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg'
+    const chemin = `${Date.now()}-${uid()}.${extension}`
+    const { error } = await supabase.storage.from('produits').upload(chemin, fichier, {
+      contentType: fichier.type, cacheControl: '31536000', upsert: false,
+    })
+    if (error) throw error
+    return supabase.storage.from('produits').getPublicUrl(chemin).data.publicUrl
+  },
+
+  /** Supprime l'objet Storage correspondant à une URL publique (silencieux si hors bucket) */
+  async supprimerPhoto(url: string | null | undefined) {
+    if (!supabase || !url) return
+    const marqueur = '/produits/'
+    const i = url.indexOf(marqueur)
+    if (i === -1) return
+    const chemin = decodeURIComponent(url.slice(i + marqueur.length).split('?')[0])
+    if (!chemin) return
+    await supabase.storage.from('produits').remove([chemin]).catch(() => {})
   },
 
   // --- Clients -------------------------------------------------------------
@@ -226,6 +338,12 @@ export const api = {
   async creerVente(v: NouvelleVente, profil: Profil): Promise<Vente> {
     const total = v.lignes.reduce((s, l) => s + l.quantite * l.prix_unitaire, 0)
     const coutTotal = v.lignes.reduce((s, l) => s + l.quantite * l.cout_unitaire, 0)
+    // comptant → tout est payé ; partiel → acompte saisi ; crédit → rien n'est payé
+    const montantPaye =
+      v.mode_paiement === 'comptant' ? total
+      : v.mode_paiement === 'partiel' ? Math.min(Math.max(v.montant_paye ?? 0, 0), total)
+      : 0
+    const resteAPayer = Math.max(total - montantPaye, 0)
 
     if (MODE_DEMO) {
       const st = chargerDemo()
@@ -234,15 +352,23 @@ export const api = {
         id: uid(), date: v.date, type_client: v.type_client, mode_paiement: v.mode_paiement,
         client_id: v.client_id, client_nom: client?.nom ?? null,
         total, cout_total: coutTotal,
-        montant_paye: v.mode_paiement === 'comptant' ? total : 0,
+        montant_paye: montantPaye, reste_a_payer: resteAPayer,
+        moyen_paiement: v.mode_paiement === 'credit' ? null : (v.moyen_paiement ?? 'especes'),
+        montant_recu: v.mode_paiement === 'credit' ? null : (v.montant_recu ?? total),
+        monnaie_rendue: v.monnaie_rendue ?? 0,
         note: v.note, user_id: profil.id, user_email: profil.email,
         created_at: new Date().toISOString(),
         lignes: v.lignes.map((l) => ({ ...l, id: uid(), vente_id: '' })),
       }
       vente.lignes.forEach((l) => (l.vente_id = vente.id))
       st.ventes.unshift(vente)
-      // Un crédit augmente la dette du client
-      if (v.mode_paiement === 'credit' && client) client.solde_du += total
+      // Crédit et partiel augmentent la dette du client du reste à payer
+      if (v.mode_paiement !== 'comptant' && client) client.solde_du += resteAPayer
+      // Déduction unique du stock à la validation de la vente
+      for (const l of v.lignes) {
+        const p = st.produits.find((x) => x.id === l.produit_id)
+        if (p && p.stock != null) p.stock = Math.max(0, p.stock - l.quantite)
+      }
       sauverDemo(st)
       return vente
     }
@@ -253,19 +379,29 @@ export const api = {
       .insert({
         date: v.date, type_client: v.type_client, mode_paiement: v.mode_paiement,
         client_id: v.client_id, total, cout_total: coutTotal,
-        montant_paye: v.mode_paiement === 'comptant' ? total : 0,
+        montant_paye: montantPaye, reste_a_payer: resteAPayer,
+        moyen_paiement: v.mode_paiement === 'credit' ? null : (v.moyen_paiement ?? 'especes'),
+        montant_recu: v.mode_paiement === 'credit' ? null : (v.montant_recu ?? total),
+        monnaie_rendue: v.monnaie_rendue ?? 0,
         note: v.note, user_id: profil.id,
       })
-      .select()
+      .select(COLONNES_VENTE)
       .single()
     if (error) throw error
     const { error: errLignes } = await sb.from('ventes_lignes').insert(
       v.lignes.map((l) => ({ ...l, vente_id: entete.id })),
     )
     if (errLignes) throw errLignes
+    // Déduction du stock : une requête par ligne, exécutées en parallèle
+    const stocks = await Promise.all(v.lignes.map((l) =>
+      sb.rpc('decrementer_stock', { p_produit_id: l.produit_id, p_quantite: l.quantite }),
+    ))
+    const errStock = stocks.find((r) => r.error)?.error
+    if (errStock) throw errStock
     const client = v.client_id ? (await sb.from('clients').select('nom').eq('id', v.client_id).single()).data : null
     return {
-      ...(entete as Vente), client_nom: client?.nom ?? null, user_email: profil.email,
+      ...(entete as Vente), cout_total: coutTotal, client_nom: client?.nom ?? null,
+      user_email: profil.email,
       lignes: v.lignes.map((l) => ({ ...l, id: uid(), vente_id: entete.id })),
     }
   },
@@ -379,6 +515,7 @@ export const api = {
     if (MODE_DEMO) {
       const st = chargerDemo()
       const existant = st.productions.find((x) => x.date === p.date && x.produit_id === p.produit_id)
+      const delta = p.quantite - (existant?.quantite ?? 0)
       if (existant) {
         existant.quantite = p.quantite
         existant.user_id = profil.id
@@ -386,16 +523,23 @@ export const api = {
       } else {
         st.productions.push({ id: uid(), ...p, user_id: profil.id, user_email: profil.email, created_at: new Date().toISOString() })
       }
+      const prod = st.produits.find((x) => x.id === p.produit_id)
+      if (prod && prod.stock != null && delta !== 0) prod.stock = Math.max(0, prod.stock + delta)
       sauverDemo(st)
       return
     }
     const sb = supabase!
-    const { data } = await sb.from('productions').select('id').eq('date', p.date).eq('produit_id', p.produit_id).maybeSingle()
+    const { data } = await sb.from('productions').select('id,quantite').eq('date', p.date).eq('produit_id', p.produit_id).maybeSingle()
+    const delta = p.quantite - ((data as any)?.quantite ?? 0)
     if (data) {
       const { error } = await sb.from('productions').update({ quantite: p.quantite, user_id: profil.id }).eq('id', data.id)
       if (error) throw error
     } else {
       const { error } = await sb.from('productions').insert({ ...p, user_id: profil.id })
+      if (error) throw error
+    }
+    if (delta !== 0) {
+      const { error } = await sb.rpc('ajuster_stock', { p_produit_id: p.produit_id, p_delta: delta })
       if (error) throw error
     }
   },
@@ -408,11 +552,17 @@ export const api = {
     if (MODE_DEMO) {
       const st = chargerDemo()
       st.invendus.unshift({ id: uid(), ...i, user_id: profil.id, user_email: profil.email, created_at: new Date().toISOString() })
+      const p = st.produits.find((x) => x.id === i.produit_id)
+      if (p && p.stock != null) p.stock = Math.max(0, p.stock - i.quantite)
       sauverDemo(st)
       return
     }
     const { error } = await supabase!.from('invendus').insert({ ...i, user_id: profil.id })
     if (error) throw error
+    const { error: errStock } = await supabase!.rpc('decrementer_stock', {
+      p_produit_id: i.produit_id, p_quantite: i.quantite,
+    })
+    if (errStock) throw errStock
   },
 
   // --- Dépenses (propriétaire) --------------------------------------------

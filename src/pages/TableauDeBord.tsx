@@ -89,11 +89,12 @@ export default function TableauDeBord() {
 
   const repartitionPaiement = useMemo(() => {
     const ventesPeriode = data.ventes.filter((v) => v.date >= bornes.debut && v.date <= bornes.fin)
-    const map: Record<ModePaiement, number> = { comptant: 0, credit: 0 }
+    const map: Record<ModePaiement, number> = { comptant: 0, credit: 0, partiel: 0 }
     for (const v of ventesPeriode) map[v.mode_paiement] += v.total
     return [
       { nom: 'Comptant', valeur: map.comptant, couleur: '#15803d' },
       { nom: 'Crédit', valeur: map.credit, couleur: '#c67f1d' },
+      { nom: 'Partiel', valeur: map.partiel, couleur: '#0284c7' },
     ].filter((x) => x.valeur > 0)
   }, [data.ventes, bornes])
 

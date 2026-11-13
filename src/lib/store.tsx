@@ -7,7 +7,7 @@ import { api, connexionDemo, deconnexionDemo, sessionDemo } from './api'
 import type { AppData, Profil, Role } from './types'
 
 const VIDE: AppData = {
-  produits: [], clients: [], ventes: [], remboursements: [],
+  categories: [], produits: [], clients: [], ventes: [], remboursements: [],
   commandes: [], productions: [], invendus: [], depenses: [],
 }
 
@@ -20,6 +20,8 @@ interface Store {
   connexion: (email: string, mdp: string) => Promise<void>
   deconnexion: () => Promise<void>
   rafraichir: () => Promise<void>
+  /** Met à jour les données locales sans recharger toute la base */
+  patchData: (fn: (d: AppData) => AppData) => void
 }
 
 const Ctx = createContext<Store | null>(null)
@@ -53,7 +55,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         if (actif) setChargement(false)
         return
       }
-      const { data: { session } } = await supabase!.auth.getSession()
+      if (!supabase) {
+        if (actif) {
+          setErreur('Supabase n’est pas configuré. Ajoutez VITE_SUPABASE_URL et VITE_SUPABASE_ANON_KEY dans .env.')
+          setChargement(false)
+        }
+        return
+      }
+      const { data: { session } } = await supabase.auth.getSession()
       if (session?.user) {
         const { data: prof } = await supabase!.from('profils').select('*').eq('id', session.user.id).single()
         if (actif) {
@@ -82,7 +91,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setData(d)
       return
     }
-    const { data: res, error } = await supabase!.auth.signInWithPassword({ email, password: mdp })
+    if (!supabase) throw new Error('Supabase n’est pas configuré. Ajoutez VITE_SUPABASE_URL et VITE_SUPABASE_ANON_KEY dans .env.')
+    const { data: res, error } = await supabase.auth.signInWithPassword({ email, password: mdp })
     if (error) throw new Error(traduireErreur(error.message))
     const { data: prof } = await supabase!.from('profils').select('*').eq('id', res.user.id).single()
     const profilCourant =
@@ -93,7 +103,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const deconnexion = useCallback(async () => {
     if (MODE_DEMO) deconnexionDemo()
-    else await supabase!.auth.signOut()
+    else if (supabase) await supabase.auth.signOut()
     setProfil(null)
     setData(VIDE)
   }, [])
@@ -107,6 +117,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     connexion,
     deconnexion,
     rafraichir: () => chargerDonnees(),
+    patchData: (fn) => setData((d) => fn(d)),
   }), [profil, chargement, data, erreur, connexion, deconnexion, chargerDonnees])
 
   return <Ctx.Provider value={valeur}>{children}</Ctx.Provider>

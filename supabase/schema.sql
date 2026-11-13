@@ -104,6 +104,12 @@ create table if not exists public.produits (
   prix_detail     integer not null check (prix_detail >= 0),
   prix_revendeur  integer not null check (prix_revendeur >= 0),
   cout_production integer not null check (cout_production >= 0),
+  categorie       text,
+  photo_url       text,
+  description     text,
+  stock           integer check (stock >= 0),
+  seuil_alerte    integer not null default 0 check (seuil_alerte >= 0),
+  unite           text not null default 'unité',
   actif           boolean not null default true,
   created_at      timestamptz not null default now()
 );
@@ -127,6 +133,9 @@ create table if not exists public.ventes (
   total         integer not null default 0,
   cout_total    integer not null default 0,   -- coût de production figé des produits vendus
   montant_paye  integer not null default 0,   -- encaissé le jour J (0 si crédit)
+  moyen_paiement text check (moyen_paiement is null or moyen_paiement in ('especes','tmoney','flooz','carte','mixte')),
+  montant_recu  integer,
+  monnaie_rendue integer not null default 0,
   note          text,
   user_id       uuid not null default auth.uid() references auth.users(id),
   created_at    timestamptz not null default now(),
@@ -429,7 +438,8 @@ create policy p_dep_all on public.depenses
 -- a) Ventes : l'employé ne peut pas lire cout_total
 revoke select on public.ventes from authenticated;
 grant select (id, date, type_client, mode_paiement, client_id, total,
-              montant_paye, note, user_id, created_at)
+              montant_paye, moyen_paiement, montant_recu, monnaie_rendue,
+              note, user_id, created_at)
   on public.ventes to authenticated;
 
 -- b) Lignes de vente : ni cout_unitaire ni accès en écriture directe au coût
@@ -456,7 +466,8 @@ create trigger trg_cout_unitaire
 
 -- d) Produits : le coût de production n'est pas lisible par l'employé
 revoke select on public.produits from authenticated;
-grant select (id, nom, prix_detail, prix_revendeur, actif, created_at)
+grant select (id, nom, prix_detail, prix_revendeur, categorie, photo_url,
+              description, stock, seuil_alerte, unite, actif, created_at)
   on public.produits to authenticated;
 
 -- e) Vues réservées au propriétaire (SECURITY DEFINER + filtre de rôle)
@@ -472,6 +483,61 @@ where public.est_proprietaire();
 
 grant select on public.v_couts_ventes to authenticated;
 grant select on public.v_couts_produits to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- 5 ter. Stock et photos produits
+-- ---------------------------------------------------------------------------
+create or replace function public.decrementer_stock(p_produit_id uuid, p_quantite integer)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+begin
+  update public.produits
+     set stock = greatest(stock - greatest(coalesce(p_quantite, 0), 0), 0)
+   where id = p_produit_id
+     and stock is not null;
+end;
+$$;
+
+create or replace function public.ajuster_stock(p_produit_id uuid, p_delta integer)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+begin
+  update public.produits
+     set stock = greatest(stock + coalesce(p_delta, 0), 0)
+   where id = p_produit_id
+     and stock is not null;
+end;
+$$;
+
+grant execute on function public.decrementer_stock(uuid, integer) to authenticated;
+grant execute on function public.ajuster_stock(uuid, integer) to authenticated;
+
+-- Bucket public pour les photos du catalogue (5 Mo max, JPG/PNG/WEBP)
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('produits', 'produits', true, 5242880, array['image/jpeg','image/png','image/webp'])
+on conflict (id) do update
+  set public = true,
+      file_size_limit = 5242880,
+      allowed_mime_types = array['image/jpeg','image/png','image/webp'];
+
+drop policy if exists produits_storage_select on storage.objects;
+create policy produits_storage_select on storage.objects
+  for select using (bucket_id = 'produits');
+
+drop policy if exists produits_storage_insert on storage.objects;
+create policy produits_storage_insert on storage.objects
+  for insert with check (bucket_id = 'produits' and public.est_proprietaire());
+
+drop policy if exists produits_storage_update on storage.objects;
+create policy produits_storage_update on storage.objects
+  for update using (bucket_id = 'produits' and public.est_proprietaire())
+  with check (bucket_id = 'produits' and public.est_proprietaire());
+
+drop policy if exists produits_storage_delete on storage.objects;
+create policy produits_storage_delete on storage.objects
+  for delete using (bucket_id = 'produits' and public.est_proprietaire());
 
 -- ---------------------------------------------------------------------------
 -- 6. Données de démonstration (optionnel)
